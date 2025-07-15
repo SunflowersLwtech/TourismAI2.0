@@ -1,0 +1,42 @@
+services:
+  # Backend API Service
+  - type: web
+    name: malaysia-ai-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: GOOGLE_CLOUD_PROJECT
+        value: bright-coyote-463315-q8
+      - key: GOOGLE_CLOUD_LOCATION
+        value: us-west1
+      - key: VERTEX_AI_ENDPOINT
+        value: projects/bright-coyote-463315-q8/locations/us-west1/endpoints/6528596580524621824
+      - key: PORT
+        value: 8000
+      # Note: GOOGLE_SERVICE_ACCOUNT_JSON must be set manually in Render Dashboard 
+      # for security reasons (contains private key)
+    healthCheckPath: /health
+    autoDeploy: true
+    
+  # Frontend Streamlit Service (Docker deployment for better reliability)
+  - type: web
+    name: malaysia-ai-frontend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: API_BASE_URL
+        value: https://malaysia-ai-backend.onrender.com
+      - key: PORT
+        value: 8501
+    autoDeploy: true
+    
+  # Alternative: Python deployment (if Docker fails)
+  # - type: web
+  #   name: malaysia-ai-frontend-python
+  #   env: python
+  #   buildCommand: pip install -r requirements.txt
+  #   startCommand: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false
+  #   envVars:
+  #     - key: API_BASE_URL
+  #       value: https://malaysia-ai-backend.onrender.com
+  #   autoDeploy: true 
