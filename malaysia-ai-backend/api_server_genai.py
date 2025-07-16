@@ -433,47 +433,44 @@ def process_uploaded_image(file: UploadFile) -> tuple[str, str, str]:
     return base64_data, image_id, mime_type
 
 def analyze_image_with_gemini(image_data: str, mime_type: str = "image/jpeg", user_message: str = "") -> str:
-    """Analyze uploaded image using your fine-tuned model with vision capabilities"""
+    """Analyze uploaded image using your fine-tuned Gemini 2.5 Flash model with vision capabilities"""
     
     try:
-        # Try to use your fine-tuned model first
-        try:
-            client = genai.Client(
-                vertexai=True,
-                project=project_id,
-                location=location,
-                credentials=credentials
-            )
-            model = model_endpoint
-            logger.info(f"🎯 Using fine-tuned model for image analysis: {model}")
-        except:
-            # Fallback to standard Gemini with API key
-            gemini_api_key = os.getenv("GEMINI_API_KEY")
-            if not gemini_api_key:
-                return "Image analysis unavailable - no API access configured"
-            
-            client = genai.Client(api_key=gemini_api_key)
-            model = "gemini-1.5-pro"
-            logger.info(f"🔄 Using standard Gemini for image analysis: {model}")
+        # Initialize client with your credentials
+        client = genai.Client(
+            vertexai=True,
+            project=project_id,
+            location=location,
+            credentials=credentials
+        )
         
-        # Create more precise image analysis prompt in English only
+        # Use your fine-tuned model endpoint
+        model = model_endpoint
+        logger.info(f"🎯 Using fine-tuned Gemini 2.5 Flash model for image analysis: {model}")
+        
+        # Create specialized prompt for your fine-tuned model
         analysis_prompt = f"""
-Please carefully analyze this image and provide a detailed response in English.
+{AIMAN_SYSTEM_PROMPT}
 
-User message: "{user_message if user_message else 'Please analyze this image'}"
+The user has uploaded an image and asked: "{user_message if user_message else 'Please analyze this image'}"
 
-Please describe in detail:
-1. What specific content do you see in the image (food, location, buildings, scenery, etc.)
-2. Identify any text, signs, or distinctive features
-3. If it's food, please identify specific dish names and characteristics
-4. If it's a location, please identify architectural style or landscape features  
-5. Based on what you see, recommend similar experiences available in Malaysia
+As Aiman, your Malaysian travel concierge, please:
 
-Please ensure your analysis is accurate and don't guess unclear details. If certain details are unclear, please honestly state so.
-Respond with travel recommendations and insights that would help someone planning a Malaysia trip.
+1. **Analyze the image carefully** - Describe what you see in detail
+2. **Identify Malaysian connections** - If it's food, landmarks, or cultural elements, relate them to Malaysia
+3. **Provide travel recommendations** - Based on what you see, suggest similar experiences in Malaysia
+4. **Be conversational and helpful** - Respond in your friendly Aiman persona
+
+If you see:
+- **Food**: Identify the dish and recommend similar Malaysian cuisine or restaurants
+- **Landmarks/Buildings**: Relate to Malaysian architecture or tourist spots
+- **Nature/Scenery**: Suggest similar landscapes or outdoor activities in Malaysia
+- **Cultural elements**: Connect to Malaysian traditions, festivals, or experiences
+
+Remember to be accurate and honest - if you're unsure about details, say so. Focus on being helpful for Malaysia travel planning.
 """
         
-        # Create content with image - try simpler approach
+        # Create content with image for your fine-tuned model
         try:
             # Create image part using the blob constructor
             image_part = types.Part(
@@ -492,35 +489,81 @@ Respond with travel recommendations and insights that would help someone plannin
                     ]
                 )
             ]
+            
+            logger.info(f"📸 Created image content for fine-tuned model analysis")
+            
         except Exception as e:
             logger.error(f"Error creating image part: {e}")
-            # Fallback to text-only analysis
-            contents = [
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text=f"{analysis_prompt}\n\nNote: Image could not be processed, please describe the image content.")
+            # If image processing fails, try fallback with API key
+            try:
+                gemini_api_key = os.getenv("GEMINI_API_KEY")
+                if gemini_api_key:
+                    client = genai.Client(api_key=gemini_api_key)
+                    model = "gemini-2.0-flash-exp"  # Use Gemini 2.0 Flash for vision
+                    logger.info(f"🔄 Fallback to Gemini 2.0 Flash for image analysis")
+                    
+                    contents = [
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_text(text=analysis_prompt),
+                                image_part
+                            ]
+                        )
                     ]
-                )
-            ]
+                else:
+                    # Last resort - text-only response
+                    contents = [
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_text(text=f"{analysis_prompt}\n\nNote: Image could not be processed, please describe the image content.")
+                            ]
+                        )
+                    ]
+            except Exception as fallback_error:
+                logger.error(f"Fallback also failed: {fallback_error}")
+                return "I'm sorry, I'm having trouble analyzing the image right now. Could you describe what's in the picture? I'd be happy to provide Malaysia travel recommendations based on your description! 🇲🇾"
         
-        # Generate response with lower temperature for more accurate analysis
+        # Generate response with optimized settings for your fine-tuned model
         response_text = ""
         
-        for chunk in client.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                temperature=0.3,  # Lower temperature for more accurate analysis
-                max_output_tokens=1024,
-                top_p=0.8
-            )
-        ):
-            if chunk.text:
-                response_text += chunk.text
+        try:
+            for chunk in client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    temperature=0.4,  # Slightly higher for more personality
+                    max_output_tokens=1500,  # More tokens for detailed analysis
+                    top_p=0.9,
+                    top_k=40
+                )
+            ):
+                if chunk.text:
+                    response_text += chunk.text
+            
+            logger.info(f"🤖 Generated image analysis with fine-tuned model: {len(response_text)} chars")
+            
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            # Try non-streaming approach as fallback
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        temperature=0.4,
+                        max_output_tokens=1500,
+                        top_p=0.9
+                    )
+                )
+                response_text = response.text
+                logger.info(f"🤖 Generated image analysis (non-streaming): {len(response_text)} chars")
+            except Exception as final_error:
+                logger.error(f"Final attempt failed: {final_error}")
+                return "I'm sorry, I'm having trouble analyzing the image right now. Could you describe what's in the picture? I'd be happy to provide Malaysia travel recommendations based on your description! 🇲🇾"
         
-        logger.info(f"🤖 Generated image analysis: {len(response_text)} chars")
-        return response_text.strip()
+        return response_text.strip() if response_text else "I analyzed the image but couldn't generate a response. Please try uploading the image again."
         
     except Exception as e:
         logger.error(f"❌ Image analysis error: {e}")
