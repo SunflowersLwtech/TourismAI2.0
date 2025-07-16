@@ -76,6 +76,9 @@ class ChatResponse(BaseModel):
     phase: Optional[str] = None
     contains_images: Optional[bool] = False
     contains_actions: Optional[bool] = False
+    search_image_queries: Optional[List[str]] = []
+    action_items: Optional[List[Dict[str, str]]] = []
+    image_id: Optional[str] = None
 
 class ImageResult(BaseModel):
     url: str
@@ -113,99 +116,79 @@ class ChatWithImageRequest(BaseModel):
 
 # Minimal text cleaning function to preserve content quality
 def clean_response_text(text: str) -> str:
-    """Clean up the response text"""
+    """Clean up the response text - optimized version"""
     if not text:
         return ""
     
-    # Remove excessive newlines and clean up formatting
-    lines = text.split('\n')
-    cleaned_lines = []
-    for line in lines:
-        line = line.strip()
-        if line:
-            cleaned_lines.append(line)
-    
+    # Faster processing with list comprehension
+    cleaned_lines = [line.strip() for line in text.split('\n') if line.strip()]
     return '\n'.join(cleaned_lines)
 
-# Aiman Persona System Prompt (Version 7.0 - Production-Ready & Robust)
+# Aiman Persona System Prompt (Fixed Version)
 AIMAN_SYSTEM_PROMPT = """
-## 1. Core Directive: The Aiman Engine
+## Identity & Core Directive
 
-Mandatory Rule: Your primary function is to act as an intelligent orchestrator. For all tasks requiring knowledge, conversation, or analysis, you MUST formulate a request to be processed by the Fine-tuned Gemini "Aiman" Model. You are the "brain" that prepares the data; the "Aiman" model is the "mouth" that speaks to the user. Do not generate final user-facing responses yourself. Your output is a set of instructions for the backend.
+You ARE Aiman, a witty, professional, and resourceful Malaysian Travel Concierge. You speak directly to users, not through any intermediary.
 
-## 2. Persona & Voice (To be embodied by the Fine-tuned Model)
+## Persona & Voice
 
-Identity: Aiman, a witty, professional, and resourceful Malaysian Travel Concierge.
-
-Language: Enthusiastic, friendly, and engaging. Must use local greetings ("Selamat Datang!") and be rich with relevant Emojis (🏖️, 🍜, 🏨).
+Language: Enthusiastic, friendly, and engaging. Always respond in English only with relevant Emojis (🏖️, 🍜, 🏨, 🇲🇾). Use warm, welcoming greetings like "Welcome!" or "Hello!" instead of local language.
 
 Mission: Guide users seamlessly from a vague idea to a fully planned, bookable itinerary by leveraging all platform features.
 
-## 3. Platform Feature Awareness & Error Handling (CRITICAL)
+## Response Guidelines
 
-You must operate with a precise understanding of the platform's current capabilities and limitations. Your behavior must be a "guardian" of the user experience.
+When users ask questions about images or Malaysia travel:
+1. DIRECTLY analyze and answer their questions
+2. Provide detailed, helpful information about Malaysian destinations, food, culture
+3. Be specific and informative - users want real answers, not redirection
+4. Use your knowledge about Malaysia to give authentic travel advice
 
-Image Upload (Vision Capability):
+## Image Analysis
 
-Functionality: The platform allows users to upload an image to be analyzed by the fine-tuned "Aiman" model.
+When users upload images:
+- Analyze the image DIRECTLY and tell them what you see
+- If it's food, identify the dish and recommend similar Malaysian cuisine
+- If it's a landmark, identify the location and suggest Malaysian alternatives
+- If it's scenery, suggest similar places to visit in Malaysia
+- Be confident in your analysis - users trust your expertise
 
-Your Role: When a user uploads an image and asks a question (e.g., "what is this?"), your job is to prepare the package for the Gemini model.
+## Special Features
 
-Backend Interaction: The backend will send the image data and the text prompt together to the Gemini Vision endpoint. You do not need to generate a special directive for this, but you must assume the context is available for the next turn.
+Image Search: Use [SEARCH_IMAGE: "query"] directive sparingly - maximum 2 images per response.
+Example: [SEARCH_IMAGE: "Nasi Lemak with fried chicken and sambal"]
+Note: Only use image search for the most important recommendations to avoid overwhelming users.
 
-Image Retrieval (Search, Not Generation):
+Action Items: Use [ACTION: Type, Name] for bookable items.
+Example: [ACTION: Hotel, Grand Hyatt Kuala Lumpur]
 
-Known Limitation: The "Aiman" model cannot generate images and is unreliable at finding valid URLs from its memory.
+## Important Rules
 
-Mandated Workflow: To display an image in your recommendations, you MUST NOT use [IMAGE: URL]. Instead, you must instruct the backend to perform a real-time search by outputting the [SEARCH_IMAGE: "query"] directive.
+- Answer user questions DIRECTLY - don't redirect to other systems
+- Be the helpful Malaysian travel expert users expect
+- Provide specific, actionable travel advice
+- Stay in character as Aiman at all times
 
-Query Best Practices: The query should be in English and specific for best results. Example: [SEARCH_IMAGE: "Nasi Lemak with fried chicken and sambal"].
+## Conversation Flow
 
-Action Directive [ACTION] (Redirects):
+Guide users through natural conversation phases:
+1. **Greeting & Scoping**: Welcome warmly and understand their travel interests
+2. **Ideation & Recommendation**: Provide specific suggestions with images and actions
+3. **Consolidation & Action**: Help finalize their travel plans
 
-Known Limitation: The [ACTION] directive is not yet fully implemented to show interactive booking cards.
+## Malaysia Focus
 
-Your Role: Continue generating the [ACTION: Type, Name] directive. This is essential for ongoing development and testing. Do not verbally promise the user any real-time booking functionality.
+- Specialize in Malaysian destinations, food, culture, and experiences
+- Provide authentic local knowledge and insider tips
+- Recommend specific places, restaurants, and activities
+- Help users discover both popular and hidden gems in Malaysia
 
-Error Handling & Graceful Failure:
+## Technical Guidelines
 
-Scenario: If the backend reports a failure in processing an image (Error 500 - from_image_url or similar), it means the "Aiman" model never received the image.
-
-Your Behavior: You must recognize this context loss. If the user's next message is vague (e.g., "what about this one?"), you must not guess.
-
-Mandatory Recovery Script: "I'm so sorry, it seems there was a little hiccup and I didn't get a clear look at your image. Could you please try uploading it again? I'm ready when you are! 🖼️"
-
-## 4. Phased Interaction Model (The User Journey)
-
-Strictly guide the user through these three logical phases.
-
-Phase 1: Greeting & Scoping: Welcome the user and ask sequential questions (vibe -> duration/travelers/budget).
-
-Phase 2: Ideation & Recommendation: Provide structured recommendations. Each point of interest must be followed by a [SEARCH_IMAGE: "query"] directive, and if applicable, an [ACTION: Type, Name] directive.
-
-Phase 3: Consolidation & Action: When a plan is solid, trigger the "Save Itinerary" workflow and then pivot to discussing accommodation options.
-
-## 5. Output Format & Directives (The Technical Contract)
-
-Your output is not for the user; it is a set of machine-readable instructions for the backend.
-
-Final User Response: The text intended for the user, crafted with Aiman's persona.
-
-Image Search Directive: [SEARCH_IMAGE: "Detailed English search query"].
-
-Action Directive: [ACTION: Type, Name].
-
-## 6. Behavioral Guardrails
-
-Model Exclusivity: All intelligent responses must originate from the fine-tuned Gemini model.
-
-Persona Integrity: Never break character. You are Aiman.
-
-Knowledge Boundary: Malaysia only.
-
-No Technical Jargon: Never discuss APIs, models, or backend processes with the user. Your job is to make the technology feel like magic.
-
-You generate images by searching web and analyze images by computer vision.
+- Never discuss APIs, models, or backend processes
+- Make technology feel seamless and magical
+- Always stay in character as Aiman
+- Provide direct, helpful responses to user questions
 """
 
 def determine_conversation_phase(conversation_history: list, current_message: str) -> ConversationPhase:
@@ -240,24 +223,29 @@ def determine_conversation_phase(conversation_history: list, current_message: st
     return ConversationPhase.IDEATION
 
 def process_response_directives(response_text: str) -> dict:
-    """Process response text to identify IMAGE and ACTION directives"""
-    contains_images = '[IMAGE:' in response_text
-    contains_actions = '[ACTION:' in response_text
+    """Process response text to identify SEARCH_IMAGE and ACTION directives"""
+    import re
+    
+    # Extract SEARCH_IMAGE directives
+    search_image_pattern = r'\[SEARCH_IMAGE:\s*"([^"]+)"\]'
+    search_image_matches = re.findall(search_image_pattern, response_text)
+    
+    # Extract ACTION directives  
+    action_pattern = r'\[ACTION:\s*([^,]+),\s*([^\]]+)\]'
+    action_matches = re.findall(action_pattern, response_text)
     
     return {
-        'contains_images': contains_images,
-        'contains_actions': contains_actions
+        'contains_images': len(search_image_matches) > 0,
+        'contains_actions': len(action_matches) > 0,
+        'search_image_queries': search_image_matches,
+        'action_items': [{'type': match[0].strip(), 'name': match[1].strip()} for match in action_matches]
     }
 
 def image_retrieval_tool(query: str, max_results: int = 5) -> List[ImageResult]:
     """
-    Core image retrieval function for Malaysia tourism content
-    This function searches for high-quality tourism images based on the query
+    Optimized image retrieval function for Malaysia tourism content
     """
     try:
-        # For now, we'll implement with Unsplash API (free tier available)
-        # You can replace this with your preferred image API
-        
         unsplash_access_key = os.getenv("UNSPLASH_ACCESS_KEY")
         if not unsplash_access_key:
             logger.warning("No UNSPLASH_ACCESS_KEY found, using fallback method")
@@ -266,24 +254,25 @@ def image_retrieval_tool(query: str, max_results: int = 5) -> List[ImageResult]:
         # Enhance query for better Malaysia tourism results
         enhanced_query = enhance_malaysia_query(query)
         
-        # Call Unsplash API
+        # Optimized API call with connection pooling
         url = "https://api.unsplash.com/search/photos"
         headers = {"Authorization": f"Client-ID {unsplash_access_key}"}
         params = {
             "query": enhanced_query,
-            "per_page": max_results,
+            "per_page": min(max_results, 3),  # Limit to reduce response time
             "orientation": "landscape",
             "content_filter": "high"
         }
         
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        # Reduced timeout for faster response
+        response = requests.get(url, headers=headers, params=params, timeout=5)
         
         if response.status_code == 200:
             data = response.json()
             images = []
             
-            for item in data.get("results", []):
-                # Extract photographer information for proper attribution
+            # Process only what we need
+            for item in data.get("results", [])[:max_results]:
                 user = item.get("user", {})
                 photographer_name = user.get("name", "Unknown Photographer")
                 photographer_username = user.get("username", "")
@@ -296,7 +285,7 @@ def image_retrieval_tool(query: str, max_results: int = 5) -> List[ImageResult]:
                     source="Unsplash",
                     photographer_name=photographer_name,
                     photographer_url=photographer_url,
-                    download_url=item.get("links", {}).get("download_location")  # For tracking downloads
+                    download_url=item.get("links", {}).get("download_location")
                 ))
             
             logger.info(f"🖼️ Retrieved {len(images)} images for query: {query}")
@@ -432,11 +421,11 @@ def process_uploaded_image(file: UploadFile) -> tuple[str, str, str]:
     logger.info(f"📸 Processed image: {image_id}, format: {mime_type}, size: {len(image_data)} bytes")
     return base64_data, image_id, mime_type
 
-def analyze_image_with_gemini(image_data: str, mime_type: str = "image/jpeg", user_message: str = "") -> str:
-    """Analyze uploaded image using your fine-tuned Gemini 2.5 Flash model with vision capabilities"""
+def analyze_image_with_gemini(image_data: str, mime_type: str = "image/jpeg", user_message: str = "") -> dict:
+    """Analyze uploaded image using ONLY your fine-tuned Gemini 2.5 Flash model"""
     
     try:
-        # Initialize client with your credentials
+        # Initialize client with your credentials - ONLY use fine-tuned model
         client = genai.Client(
             vertexai=True,
             project=project_id,
@@ -444,7 +433,7 @@ def analyze_image_with_gemini(image_data: str, mime_type: str = "image/jpeg", us
             credentials=credentials
         )
         
-        # Use your fine-tuned model endpoint
+        # Use ONLY your fine-tuned model endpoint
         model = model_endpoint
         logger.info(f"🎯 Using fine-tuned Gemini 2.5 Flash model for image analysis: {model}")
         
@@ -459,7 +448,8 @@ As Aiman, your Malaysian travel concierge, please:
 1. **Analyze the image carefully** - Describe what you see in detail
 2. **Identify Malaysian connections** - If it's food, landmarks, or cultural elements, relate them to Malaysia
 3. **Provide travel recommendations** - Based on what you see, suggest similar experiences in Malaysia
-4. **Be conversational and helpful** - Respond in your friendly Aiman persona
+4. **Use [SEARCH_IMAGE: "query"] directives** - For each recommendation, add a search directive
+5. **Use [ACTION: Type, Name] directives** - For bookable items like hotels or activities
 
 If you see:
 - **Food**: Identify the dish and recommend similar Malaysian cuisine or restaurants
@@ -494,36 +484,11 @@ Remember to be accurate and honest - if you're unsure about details, say so. Foc
             
         except Exception as e:
             logger.error(f"Error creating image part: {e}")
-            # If image processing fails, try fallback with API key
-            try:
-                gemini_api_key = os.getenv("GEMINI_API_KEY")
-                if gemini_api_key:
-                    client = genai.Client(api_key=gemini_api_key)
-                    model = "gemini-2.0-flash-exp"  # Use Gemini 2.0 Flash for vision
-                    logger.info(f"🔄 Fallback to Gemini 2.0 Flash for image analysis")
-                    
-                    contents = [
-                        types.Content(
-                            role="user",
-                            parts=[
-                                types.Part.from_text(text=analysis_prompt),
-                                image_part
-                            ]
-                        )
-                    ]
-                else:
-                    # Last resort - text-only response
-                    contents = [
-                        types.Content(
-                            role="user",
-                            parts=[
-                                types.Part.from_text(text=f"{analysis_prompt}\n\nNote: Image could not be processed, please describe the image content.")
-                            ]
-                        )
-                    ]
-            except Exception as fallback_error:
-                logger.error(f"Fallback also failed: {fallback_error}")
-                return "I'm sorry, I'm having trouble analyzing the image right now. Could you describe what's in the picture? I'd be happy to provide Malaysia travel recommendations based on your description! 🇲🇾"
+            # NO FALLBACK - only use fine-tuned model or fail gracefully
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to process image for fine-tuned model analysis. Please try uploading the image again."
+            )
         
         # Generate response with optimized settings for your fine-tuned model
         response_text = ""
@@ -533,7 +498,7 @@ Remember to be accurate and honest - if you're unsure about details, say so. Foc
                 model=model,
                 contents=contents,
                 config=types.GenerateContentConfig(
-                    temperature=0.4,  # Slightly higher for more personality
+                    temperature=0.4,  # Optimized for your model
                     max_output_tokens=1500,  # More tokens for detailed analysis
                     top_p=0.9,
                     top_k=40
@@ -561,13 +526,32 @@ Remember to be accurate and honest - if you're unsure about details, say so. Foc
                 logger.info(f"🤖 Generated image analysis (non-streaming): {len(response_text)} chars")
             except Exception as final_error:
                 logger.error(f"Final attempt failed: {final_error}")
-                return "I'm sorry, I'm having trouble analyzing the image right now. Could you describe what's in the picture? I'd be happy to provide Malaysia travel recommendations based on your description! 🇲🇾"
+                raise HTTPException(
+                    status_code=500,
+                    detail="Fine-tuned model is currently unavailable. Please try again later."
+                )
         
-        return response_text.strip() if response_text else "I analyzed the image but couldn't generate a response. Please try uploading the image again."
+        # Process directives
+        directives = process_response_directives(response_text)
         
+        return {
+            "response": response_text.strip() if response_text else "I analyzed the image but couldn't generate a response. Please try uploading the image again.",
+            "model_used": model,
+            "phase": "ideation",
+            "contains_images": directives.get('contains_images', False),
+            "contains_actions": directives.get('contains_actions', False),
+            "search_image_queries": directives.get('search_image_queries', []),
+            "action_items": directives.get('action_items', [])
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Image analysis error: {e}")
-        return f"Sorry, I encountered an issue analyzing this image. Could you describe what's in the picture? I'd be happy to provide Malaysia travel recommendations based on your description! 🇲🇾"
+        raise HTTPException(
+            status_code=500,
+            detail="Fine-tuned model analysis failed. Please try again later."
+        )
 
 # Global variables
 project_id = None
@@ -657,27 +641,71 @@ def setup_google_credentials():
             return True
             
         else:
-            # Local development - use existing file
+            # Local development - try multiple authentication methods
             logger.info("🏠 Running in local environment")
-            cred_file = "bright-coyote-463315-q8-59797318b374.json"
-            if os.path.exists(cred_file):
-                credentials = service_account.Credentials.from_service_account_file(
-                    cred_file,
-                    scopes=VERTEX_AI_SCOPES
-                )
-                logger.info(f"🔐 Using local credentials with scopes: {cred_file}")
-                return True
-            else:
-                logger.warning(f"⚠️ Local credential file not found: {cred_file}")
-                # Try default credentials
+            
+            # Method 1: Try JSON string from environment variable first
+            google_creds_json = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
+            if google_creds_json:
                 try:
-                    from google.auth import default
-                    credentials, _ = default(scopes=VERTEX_AI_SCOPES)
-                    logger.info("🔄 Using default application credentials with proper scopes")
+                    import json
+                    logger.info("🔍 Found GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON environment variable")
+                    
+                    # Parse the JSON credentials
+                    creds_info = json.loads(google_creds_json)
+                    
+                    # Create credentials from service account info
+                    credentials = service_account.Credentials.from_service_account_info(
+                        creds_info,
+                        scopes=VERTEX_AI_SCOPES
+                    )
+                    logger.info("🔐 Service account credentials loaded from environment JSON")
+                    logger.info(f"🔧 Applied scopes: {len(VERTEX_AI_SCOPES)} vertex AI scopes")
+                    logger.info(f"🎯 Service account email: {creds_info.get('client_email', 'unknown')}")
+                    return True
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"❌ Invalid JSON in GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON: {e}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to load credentials from JSON env var: {e}")
+            
+            # Method 2: Try GOOGLE_APPLICATION_CREDENTIALS file path
+            cred_file_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            if cred_file_path and os.path.exists(cred_file_path):
+                try:
+                    credentials = service_account.Credentials.from_service_account_file(
+                        cred_file_path,
+                        scopes=VERTEX_AI_SCOPES
+                    )
+                    logger.info(f"🔐 Service account credentials loaded from file: {cred_file_path}")
+                    logger.info(f"🔧 Applied scopes: {len(VERTEX_AI_SCOPES)} vertex AI scopes")
                     return True
                 except Exception as e:
-                    logger.error(f"❌ Failed to use default credentials: {e}")
-                    return False
+                    logger.error(f"❌ Failed to load credentials from file {cred_file_path}: {e}")
+            
+            # Method 3: Try hardcoded local file (legacy)
+            cred_file = "bright-coyote-463315-q8-59797318b374.json"
+            if os.path.exists(cred_file):
+                try:
+                    credentials = service_account.Credentials.from_service_account_file(
+                        cred_file,
+                        scopes=VERTEX_AI_SCOPES
+                    )
+                    logger.info(f"🔐 Using local credentials with scopes: {cred_file}")
+                    return True
+                except Exception as e:
+                    logger.error(f"❌ Failed to load legacy credential file {cred_file}: {e}")
+            
+            # Method 4: Try default credentials as last resort
+            logger.warning(f"⚠️ No credential file found, trying default credentials")
+            try:
+                from google.auth import default
+                credentials, _ = default(scopes=VERTEX_AI_SCOPES)
+                logger.info("🔄 Using default application credentials with proper scopes")
+                return True
+            except Exception as e:
+                logger.error(f"❌ Failed to use default credentials: {e}")
+                return False
                 
     except Exception as e:
         logger.error(f"❌ Failed to setup credentials: {e}")
@@ -880,7 +908,9 @@ async def chat_endpoint(request: ChatRequest):
             model_used=f"vertex-ai-{model}",
             phase=current_phase.value,
             contains_images=directive_info['contains_images'],
-            contains_actions=directive_info['contains_actions']
+            contains_actions=directive_info['contains_actions'],
+            search_image_queries=directive_info.get('search_image_queries', []),
+            action_items=directive_info.get('action_items', [])
         )
         
     except Exception as e:
@@ -1016,12 +1046,12 @@ async def track_image_download(download_url: str):
         logger.error(f"❌ Download tracking error: {e}")
         return {"success": False, "message": f"Error: {str(e)}"}
 
-@app.post("/upload-image", response_model=ImageUploadResponse)
+@app.post("/upload-image", response_model=ChatResponse)
 async def upload_image_endpoint(
     file: UploadFile = File(...),
     message: str = Form(default="What do you see in this image?")
 ):
-    """Upload and analyze image endpoint"""
+    """Upload and analyze image endpoint - returns unified ChatResponse format"""
     logger.info(f"📤 Image upload request: {file.filename}, message: {message[:50]}...")
     
     try:
@@ -1036,29 +1066,19 @@ async def upload_image_endpoint(
         # Process image
         base64_data, image_id, mime_type = process_uploaded_image(file)
         
-        # Analyze with Gemini Vision
-        analysis = analyze_image_with_gemini(base64_data, mime_type, message)
+        # Analyze with fine-tuned Gemini model
+        analysis_result = analyze_image_with_gemini(base64_data, mime_type, message)
         
-        # Extract suggestions (simple keyword extraction)
-        suggestions = []
-        if "kuala lumpur" in analysis.lower():
-            suggestions.append("Kuala Lumpur attractions")
-        if "penang" in analysis.lower():
-            suggestions.append("Penang food and heritage")
-        if "food" in analysis.lower() or "dish" in analysis.lower():
-            suggestions.append("Malaysian cuisine experiences")
-        if "beach" in analysis.lower() or "island" in analysis.lower():
-            suggestions.append("Malaysian beach destinations")
-        
-        # Default suggestions if none found
-        if not suggestions:
-            suggestions = ["Malaysia travel recommendations", "Local experiences", "Similar attractions"]
-        
-        return ImageUploadResponse(
-            analysis=analysis,
-            suggestions=suggestions,
-            image_id=image_id,
-            processed=True
+        # Return unified ChatResponse format
+        return ChatResponse(
+            response=analysis_result["response"],
+            model_used=analysis_result["model_used"],
+            phase=analysis_result["phase"],
+            contains_images=analysis_result["contains_images"],
+            contains_actions=analysis_result["contains_actions"],
+            search_image_queries=analysis_result.get("search_image_queries", []),
+            action_items=analysis_result.get("action_items", []),
+            image_id=image_id
         )
         
     except HTTPException:
@@ -1205,54 +1225,7 @@ async def chat_with_image_endpoint(request: ChatWithImageRequest):
             detail=f"Failed to generate response: {str(e)}"
         )
 
-@app.post("/test-chat", response_model=ChatResponse)
-async def test_chat_endpoint(request: ChatRequest):
-    """Test chat endpoint using regular Gemini API"""
-    logger.info(f"📨 Testing with regular Gemini API: {request.message[:50]}...")
-    
-    try:
-        # Create a client for regular Gemini API
-        gemini_api_key = os.getenv("GEMINI_API_KEY")
-        if not gemini_api_key:
-            raise HTTPException(status_code=500, detail="GEMINI_API_KEY not found")
-            
-        test_client = genai.Client(api_key=gemini_api_key)
-        
-        # Create content for the request
-        contents = [
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=request.message)]
-            )
-        ]
-        
-        # Configure generation parameters
-        config = types.GenerateContentConfig(
-            temperature=request.temperature,
-            max_output_tokens=request.max_tokens
-        )
-        
-        # Generate content using regular Gemini
-        response = test_client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=contents,
-            config=config
-        )
-        
-        # Extract and clean the response text
-        response_text = response.text if response.text else "No response generated"
-        cleaned_response = clean_response_text(response_text)
-        
-        logger.info(f"✅ Generated test response: {len(response_text)} chars -> {len(cleaned_response)} chars (cleaned)")
-        
-        return ChatResponse(
-            response=cleaned_response,
-            model_used="gemini-1.5-flash (test)"
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Error in test endpoint: {e}")
-        raise HTTPException(status_code=500, detail=f"Error in test endpoint: {str(e)}")
+# Test endpoint removed - only use fine-tuned Gemini 2.5 Flash model
 
 if __name__ == "__main__":
     import uvicorn
