@@ -2,7 +2,11 @@ import streamlit as st
 import requests
 import json
 import base64
+import os
 from typing import Dict, Any, Optional
+
+# Get backend URL from environment variable or use default
+BACKEND_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 # Page configuration
 st.set_page_config(
@@ -74,7 +78,7 @@ st.markdown("""
 def check_backend_health() -> bool:
     """Check if the backend is running"""
     try:
-        response = requests.get("http://localhost:8000/health", timeout=5)
+        response = requests.get(f"{BACKEND_URL}/health", timeout=5)
         return response.status_code == 200
     except:
         return False
@@ -83,7 +87,7 @@ def check_backend_health() -> bool:
 def search_images(query: str, max_results: int = 3) -> list:
     """Search for images using the backend image search endpoint"""
     try:
-        url = "http://localhost:8000/image-search"
+        url = f"{BACKEND_URL}/image-search"
         payload = {"query": query, "max_results": max_results}
         
         response = requests.post(url, json=payload, timeout=15)
@@ -167,7 +171,7 @@ def chat_with_aiman(message: str, image_data: Optional[str] = None) -> tuple[str
         
         # Use different endpoint for image analysis
         if image_data:
-            url = "http://localhost:8000/chat-with-image"
+            url = f"{BACKEND_URL}/chat-with-image"
             payload = {
                 "message": message,
                 "image_data": image_data,  # Correct key name
@@ -178,7 +182,7 @@ def chat_with_aiman(message: str, image_data: Optional[str] = None) -> tuple[str
             debug_info.append(f"Using image analysis endpoint")
             debug_info.append(f"Image data length: {len(image_data)}")
         else:
-            url = "http://localhost:8000/chat"
+            url = f"{BACKEND_URL}/chat"
             payload = {
                 "message": message,
                 "conversation_history": conversation_history
@@ -277,7 +281,7 @@ def main():
             st.success("✅ Backend: Connected")
         else:
             st.error("❌ Backend: Disconnected")
-            st.error("Please ensure the backend server is running on http://localhost:8000")
+            st.error(f"Please ensure the backend server is running on {BACKEND_URL}")
             st.stop()
         
         st.markdown("---")
