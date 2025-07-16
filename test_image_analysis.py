@@ -65,7 +65,7 @@ def test_image_upload(image_path: str, message: str = "请分析这张图片"):
             result = response.json()
             print(f"✅ 图像分析测试成功")
             print(f"📸 文件: {os.path.basename(image_path)}")
-            print(f"📝 分析结果: {result['analysis'][:200]}...")
+            print(f"📝 分析结果: {result['response'][:200]}...")
             return True
         else:
             print(f"❌ 图像分析测试失败: {response.status_code}")
